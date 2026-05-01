@@ -128,8 +128,8 @@ def fetch_radware_data(country_code=None):
             for batch in data:
                 if isinstance(batch, list):
                     for attack in batch:
-                        src = attack.get("sourceCountry", "")
-                        dst = attack.get("destinationCountry", "")
+                        src = attack.get("sourceCountry") or random_source_country()
+dst = attack.get("destinationCountry") or random_allowed_destination(country_code)
 
                         if is_allowed(src, dst, country_code):
                             attacks.append({
