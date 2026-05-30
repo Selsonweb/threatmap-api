@@ -231,6 +231,9 @@ def fetch_radware_data(country_code=None):
                         src = attack.get("sourceCountry") or random_source_country()
                         dst = attack.get("destinationCountry") or random_allowed_destination(country_code)
 
+                        if not dst or dst.strip() == "":
+                            dst = random_allowed_destination(country_code)
+
                         if is_allowed(src, dst, country_code):
                             attacks.append({
                                 "source": "Radware",
