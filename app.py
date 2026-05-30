@@ -1,14 +1,20 @@
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
 import json
 import csv
-import io
 import sseclient
 import random
+import hashlib
 
 app = Flask(__name__)
 CORS(app)
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 FORTIGUARD_URL = "https://fortiguard.fortinet.com/api/threatmap/live/outbreak?&limit=100"
 CHECKPOINT_URL = "https://threatmap-api.checkpoint.com/ThreatMap/api/feed"
@@ -21,6 +27,100 @@ CHECKPOINT_HEADERS = {"Accept": "text/event-stream"}
 
 ALLOWED_COUNTRIES = ["BE", "NL", "DE"]
 POSSIBLE_SOURCE_COUNTRIES = ["CN", "RU", "US", "IN", "TR", "FR", "GB", "PL", "IT", "ES"]
+
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
+
+
+def init_db():
+    if not DATABASE_URL:
+        print("DATABASE_URL not found")
+        return
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS threat_logs (
+                id SERIAL PRIMARY KEY,
+                event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                event_hash TEXT UNIQUE,
+                provider TEXT,
+                source_country TEXT,
+                destination_country TEXT,
+                threat_type TEXT,
+                threat_name TEXT,
+                severity TEXT,
+                raw_data JSONB
+            );
+        """)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("Database initialized")
+
+    except Exception as e:
+        print("Database init error:", e)
+
+
+def create_event_hash(attack):
+    hash_text = f"""
+    {attack.get("source")}
+    {attack.get("sourceCountry")}
+    {attack.get("destinationCountry")}
+    {attack.get("type")}
+    {attack.get("name")}
+    {datetime.utcnow().strftime("%Y-%m-%d-%H")}
+    """
+    return hashlib.sha256(hash_text.encode("utf-8")).hexdigest()
+
+
+def save_threat(attack):
+    if not DATABASE_URL:
+        return
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO threat_logs (
+                event_hash,
+                provider,
+                source_country,
+                destination_country,
+                threat_type,
+                threat_name,
+                severity,
+                raw_data
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (event_hash) DO NOTHING
+        """, (
+            create_event_hash(attack),
+            attack.get("source"),
+            attack.get("sourceCountry"),
+            attack.get("destinationCountry"),
+            attack.get("type"),
+            attack.get("name"),
+            attack.get("weight"),
+            json.dumps(attack)
+        ))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        print("Database save error:", e)
+
+
+def save_threats(attacks):
+    for attack in attacks:
+        save_threat(attack)
 
 
 def is_allowed(src, dst, country_code=None):
@@ -129,7 +229,10 @@ def fetch_radware_data(country_code=None):
                 if isinstance(batch, list):
                     for attack in batch:
                         src = attack.get("sourceCountry") or random_source_country()
-dst = attack.get("destinationCountry") or random_allowed_destination(country_code)
+                        dst = attack.get("destinationCountry") or random_allowed_destination(country_code)
+
+                        if not dst or dst.strip() == "":
+                            dst = random_allowed_destination(country_code)
 
                         if is_allowed(src, dst, country_code):
                             attacks.append({
@@ -221,7 +324,8 @@ def fetch_cisa_kev_data(country_code=None):
 def home():
     return jsonify({
         "status": "running",
-        "message": "ThreatMap API is live"
+        "message": "ThreatMap API is live",
+        "database": "connected" if DATABASE_URL else "not configured"
     })
 
 
@@ -236,11 +340,113 @@ def threat_feed():
     results.extend(fetch_fortiguard_data(country_code))
     results.extend(fetch_checkpoint_data(country_code))
 
+    save_threats(results)
+
     return jsonify({
         "count": len(results),
         "data": results
     })
 
+
+@app.route("/api/stats/top-threats")
+def top_threats():
+    country_code = request.args.get("country", "BE")
+    days = request.args.get("days", "30")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT threat_type, COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY threat_type
+            ORDER BY total DESC
+            LIMIT 10
+        """, (country_code, days))
+
+        data = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "country": country_code,
+            "days": days,
+            "data": data
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/stats/top-source-countries")
+def top_source_countries():
+    country_code = request.args.get("country", "BE")
+    days = request.args.get("days", "30")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT source_country, COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY source_country
+            ORDER BY total DESC
+            LIMIT 10
+        """, (country_code, days))
+
+        data = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "country": country_code,
+            "days": days,
+            "data": data
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/stats/daily")
+def daily_stats():
+    country_code = request.args.get("country", "BE")
+    days = request.args.get("days", "30")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT DATE(event_time) AS date, COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY DATE(event_time)
+            ORDER BY date ASC
+        """, (country_code, days))
+
+        data = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "country": country_code,
+            "days": days,
+            "data": data
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+init_db()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
