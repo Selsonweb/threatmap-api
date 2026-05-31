@@ -445,6 +445,24 @@ def daily_stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/stats/count")
+def stats_count():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("SELECT COUNT(*) FROM threat_logs")
+        total = cur.fetchone()[0]
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "total_records": total
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 init_db()
 
