@@ -354,16 +354,34 @@ def threat_feed():
 
 @app.route("/api/cron/collect-threats")
 def cron_collect_threats():
-    results = []
+    all_results = []
+    country_results = {}
+    errors = []
 
     for country in ALLOWED_COUNTRIES:
-        results.extend(collect_and_save_threats(country))
+        try:
+            results = []
+            results.extend(fetch_radware_data(country))
+            results.extend(fetch_urlhaus_data(country))
+            results.extend(fetch_cisa_kev_data(country))
+
+            save_threats(results)
+
+            all_results.extend(results)
+            country_results[country] = len(results)
+
+        except Exception as e:
+            errors.append({
+                "country": country,
+                "error": str(e)
+            })
 
     return jsonify({
         "status": "success",
         "message": "Threat collection completed",
-        "countries": ALLOWED_COUNTRIES,
-        "collected": len(results)
+        "countries": country_results,
+        "total_collected": len(all_results),
+        "errors": errors
     })
 
 
