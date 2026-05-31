@@ -320,6 +320,18 @@ def fetch_cisa_kev_data(country_code=None):
         return []
 
 
+def collect_and_save_threats(country_code=None):
+    results = []
+    results.extend(fetch_radware_data(country_code))
+    results.extend(fetch_urlhaus_data(country_code))
+    results.extend(fetch_cisa_kev_data(country_code))
+    results.extend(fetch_fortiguard_data(country_code))
+    results.extend(fetch_checkpoint_data(country_code))
+
+    save_threats(results)
+    return results
+
+
 @app.route("/")
 def home():
     return jsonify({
@@ -332,20 +344,93 @@ def home():
 @app.route("/api/threat-feed")
 def threat_feed():
     country_code = request.args.get("country")
-
-    results = []
-    results.extend(fetch_radware_data(country_code))
-    results.extend(fetch_urlhaus_data(country_code))
-    results.extend(fetch_cisa_kev_data(country_code))
-    results.extend(fetch_fortiguard_data(country_code))
-    results.extend(fetch_checkpoint_data(country_code))
-
-    save_threats(results)
+    results = collect_and_save_threats(country_code)
 
     return jsonify({
         "count": len(results),
         "data": results
     })
+
+
+@app.route("/api/cron/collect-threats")
+def cron_collect_threats():
+    results = []
+
+    for country in ALLOWED_COUNTRIES:
+        results.extend(collect_and_save_threats(country))
+
+    return jsonify({
+        "status": "success",
+        "message": "Threat collection completed",
+        "countries": ALLOWED_COUNTRIES,
+        "collected": len(results)
+    })
+
+
+@app.route("/api/stats/summary")
+def stats_summary():
+    country_code = request.args.get("country", "BE")
+    days = request.args.get("days", "30")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND event_time >= NOW() - (%s || ' days')::interval
+        """, (country_code, days))
+        total = cur.fetchone()["total"]
+
+        cur.execute("""
+            SELECT threat_type, COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY threat_type
+            ORDER BY total DESC
+            LIMIT 1
+        """, (country_code, days))
+        top_threat = cur.fetchone()
+
+        cur.execute("""
+            SELECT source_country, COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY source_country
+            ORDER BY total DESC
+            LIMIT 1
+        """, (country_code, days))
+        top_source = cur.fetchone()
+
+        cur.execute("""
+            SELECT COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND severity = 'High'
+            AND event_time >= NOW() - (%s || ' days')::interval
+        """, (country_code, days))
+        high_severity = cur.fetchone()["total"]
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "country": country_code,
+            "days": days,
+            "totalThreats": total,
+            "topThreat": top_threat["threat_type"] if top_threat else None,
+            "topThreatCount": top_threat["total"] if top_threat else 0,
+            "topSourceCountry": top_source["source_country"] if top_source else None,
+            "topSourceCount": top_source["total"] if top_source else 0,
+            "highSeverity": high_severity
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/stats/top-threats")
@@ -445,6 +530,7 @@ def daily_stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/stats/count")
 def stats_count():
     try:
@@ -463,6 +549,7 @@ def stats_count():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 init_db()
 
