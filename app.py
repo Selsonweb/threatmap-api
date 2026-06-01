@@ -440,9 +440,6 @@ def stats_summary():
         """, (country_code, days))
         high_severity = cur.fetchone()["total"]
 
-        cur.close()
-        conn.close()
-
         cur.execute("""
             SELECT threat_name, COUNT(*) AS total
             FROM threat_logs
@@ -453,8 +450,10 @@ def stats_summary():
             ORDER BY total DESC
             LIMIT 1
         """, (country_code, days))
-
         top_cve = cur.fetchone()
+
+        cur.close()
+        conn.close()
 
         return jsonify({
             "country": country_code,
