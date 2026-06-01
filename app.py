@@ -443,6 +443,19 @@ def stats_summary():
         cur.close()
         conn.close()
 
+        cur.execute("""
+            SELECT threat_name, COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND threat_type = 'Known Exploited Vulnerability'
+            AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY threat_name
+            ORDER BY total DESC
+            LIMIT 1
+        """, (country_code, days))
+
+        top_cve = cur.fetchone()
+
         return jsonify({
             "country": country_code,
             "days": days,
@@ -451,7 +464,9 @@ def stats_summary():
             "topThreatCount": top_threat["total"] if top_threat else 0,
             "topSourceCountry": top_source["source_country"] if top_source else None,
             "topSourceCount": top_source["total"] if top_source else 0,
-            "highSeverity": high_severity
+            "highSeverity": high_severity,
+            "topCVE": top_cve["threat_name"] if top_cve else None,
+            "topCVECount": top_cve["total"] if top_cve else 0
         })
 
     except Exception as e:
