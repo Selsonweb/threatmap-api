@@ -556,6 +556,40 @@ def daily_stats():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/stats/top-cves")
+def top_cves():
+    country_code = request.args.get("country", "BE")
+    days = request.args.get("days", "30")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT threat_name, COUNT(*) AS total
+            FROM threat_logs
+            WHERE destination_country = %s
+            AND threat_type = 'Known Exploited Vulnerability'
+            AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY threat_name
+            ORDER BY total DESC
+            LIMIT 10
+        """, (country_code, days))
+
+        data = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "country": country_code,
+            "days": days,
+            "data": data
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/stats/count")
 def stats_count():
     try:
