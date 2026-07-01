@@ -119,9 +119,44 @@ def save_threat(attack):
 
 
 def save_threats(attacks):
-    for attack in attacks:
-        save_threat(attack)
+    if not DATABASE_URL or not attacks:
+        return
 
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        for attack in attacks:
+            cur.execute("""
+                INSERT INTO threat_logs (
+                    event_hash,
+                    provider,
+                    source_country,
+                    destination_country,
+                    threat_type,
+                    threat_name,
+                    severity,
+                    raw_data
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (event_hash) DO NOTHING
+            """, (
+                create_event_hash(attack),
+                attack.get("source"),
+                attack.get("sourceCountry"),
+                attack.get("destinationCountry"),
+                attack.get("type"),
+                attack.get("name"),
+                attack.get("weight"),
+                json.dumps(attack)
+            ))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        print("Database batch save error:", e)
 
 def is_allowed(src, dst, country_code=None):
     if country_code:
