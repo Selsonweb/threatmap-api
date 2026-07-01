@@ -343,13 +343,38 @@ def home():
 
 @app.route("/api/threat-feed")
 def threat_feed():
-    country_code = request.args.get("country")
-    results = collect_and_save_threats(country_code)
+    country_code = request.args.get("country", "BE")
 
-    return jsonify({
-        "count": len(results),
-        "data": results
-    })
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT
+                event_time,
+                provider AS source,
+                source_country AS "sourceCountry",
+                destination_country AS "destinationCountry",
+                threat_type AS type,
+                threat_name AS name,
+                severity AS weight
+            FROM threat_logs
+            WHERE destination_country = %s
+            ORDER BY event_time DESC
+            LIMIT 100
+        """, (country_code,))
+
+        data = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "count": len(data),
+            "data": data
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/cron/collect-threats")
