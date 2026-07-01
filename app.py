@@ -451,6 +451,64 @@ def cron_collect_threats():
         "errors": errors
     })
 
+def run_provider_collection(provider_name, fetch_function):
+    country = request.args.get("country", "BE")
+
+    if country not in ALLOWED_COUNTRIES:
+        return jsonify({
+            "status": "error",
+            "message": "Invalid country",
+            "allowed_countries": ALLOWED_COUNTRIES
+        }), 400
+
+    errors = []
+
+    try:
+        results = fetch_function(country)
+        save_threats(results)
+
+        return jsonify({
+            "status": "success",
+            "provider": provider_name,
+            "country": country,
+            "collected": len(results),
+            "errors": errors
+        })
+
+    except Exception as e:
+        errors.append({"source": provider_name, "error": str(e)})
+        return jsonify({
+            "status": "error",
+            "provider": provider_name,
+            "country": country,
+            "collected": 0,
+            "errors": errors
+        }), 500
+
+
+@app.route("/api/cron/urlhaus")
+def cron_urlhaus():
+    return run_provider_collection("URLhaus", fetch_urlhaus_data)
+
+
+@app.route("/api/cron/cisa")
+def cron_cisa():
+    return run_provider_collection("CISA KEV", fetch_cisa_kev_data)
+
+
+@app.route("/api/cron/radware")
+def cron_radware():
+    return run_provider_collection("Radware", fetch_radware_data)
+
+
+@app.route("/api/cron/fortiguard")
+def cron_fortiguard():
+    return run_provider_collection("FortiGuard", fetch_fortiguard_data)
+
+
+@app.route("/api/cron/checkpoint")
+def cron_checkpoint():
+    return run_provider_collection("CheckPoint", fetch_checkpoint_data)
 
 @app.route("/api/stats/summary")
 def stats_summary():
