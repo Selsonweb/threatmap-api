@@ -758,15 +758,43 @@ def intelligence_top_cves():
             cve=parts[0]
 
             product=parts[1] if len(parts)>1 else ""
+known_vendors = [
+    "Check Point",
+    "SolarWinds",
+    "SimpleHelp",
+    "Cisco",
+    "Ivanti",
+    "Ubiquiti",
+    "PTC",
+    "BerriAI",
+    "Mirasvit",
+    "Arista",
+    "Splunk",
+    "LiteSpeed",
+    "Lantronix",
+    "Google",
+    "Oracle"
+]
 
-            vendor=product.split(" ")[0] if product else ""
+vendor = ""
+clean_product = product
 
-            result.append({
-                "cve":cve,
-                "vendor":vendor,
-                "product":product,
-                "count":row["total"]
-            })
+for known_vendor in known_vendors:
+    if product.startswith(known_vendor):
+        vendor = known_vendor
+        clean_product = product.replace(known_vendor, "", 1).strip()
+        break
+
+if not vendor:
+    vendor = product.split(" ")[0] if product else ""
+    clean_product = product.replace(vendor, "", 1).strip()
+
+result.append({
+    "cve": cve,
+    "vendor": vendor,
+    "product": clean_product,
+    "count": row["total"]
+})
 
         cur.close()
         conn.close()
@@ -775,6 +803,86 @@ def intelligence_top_cves():
 
     except Exception as e:
         return jsonify({"error":str(e)}),500
+
+KNOWN_VENDORS = [
+    "Check Point",
+    "SolarWinds",
+    "SimpleHelp",
+    "Cisco",
+    "Ivanti",
+    "Ubiquiti",
+    "PTC",
+    "BerriAI",
+    "Mirasvit",
+    "Arista",
+    "Splunk",
+    "LiteSpeed",
+    "Lantronix",
+    "Google",
+    "Oracle"
+]
+
+
+@app.route("/api/intelligence/top-cves")
+def intelligence_top_cves():
+    country_code = request.args.get("country", "BE")
+    days = request.args.get("days", "30")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT
+                threat_name,
+                COUNT(*) AS total
+            FROM threat_logs
+            WHERE
+                destination_country = %s
+                AND threat_type = 'Known Exploited Vulnerability'
+                AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY threat_name
+            ORDER BY total DESC
+            LIMIT 20
+        """, (country_code, days))
+
+        rows = cur.fetchall()
+        result = []
+
+        for row in rows:
+            text = row["threat_name"]
+            parts = text.split(" - ", 1)
+
+            cve = parts[0]
+            full_product = parts[1] if len(parts) > 1 else ""
+
+            vendor = ""
+            clean_product = full_product
+
+            for known_vendor in KNOWN_VENDORS:
+                if full_product.startswith(known_vendor):
+                    vendor = known_vendor
+                    clean_product = full_product.replace(known_vendor, "", 1).strip()
+                    break
+
+            if not vendor:
+                vendor = full_product.split(" ")[0] if full_product else ""
+                clean_product = full_product.replace(vendor, "", 1).strip()
+
+            result.append({
+                "cve": cve,
+                "vendor": vendor,
+                "product": clean_product,
+                "count": row["total"]
+            })
+
+        cur.close()
+        conn.close()
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/stats/count")
