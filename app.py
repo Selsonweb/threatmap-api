@@ -721,6 +721,61 @@ def top_cves():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/intelligence/top-cves")
+def intelligence_top_cves():
+
+    country_code = request.args.get("country", "BE")
+    days = request.args.get("days", "30")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("""
+            SELECT
+                threat_name,
+                COUNT(*) AS total
+            FROM threat_logs
+            WHERE
+                destination_country=%s
+                AND threat_type='Known Exploited Vulnerability'
+                AND event_time >= NOW()-(%s || ' days')::interval
+            GROUP BY threat_name
+            ORDER BY total DESC
+            LIMIT 20
+        """,(country_code,days))
+
+        rows = cur.fetchall()
+
+        result=[]
+
+        for row in rows:
+
+            text=row["threat_name"]
+
+            parts=text.split(" - ",1)
+
+            cve=parts[0]
+
+            product=parts[1] if len(parts)>1 else ""
+
+            vendor=product.split(" ")[0] if product else ""
+
+            result.append({
+                "cve":cve,
+                "vendor":vendor,
+                "product":product,
+                "count":row["total"]
+            })
+
+        cur.close()
+        conn.close()
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error":str(e)}),500
+
 
 @app.route("/api/stats/count")
 def stats_count():
