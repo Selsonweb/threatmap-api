@@ -339,17 +339,17 @@ def fetch_cisa_kev_data(country_code=None):
             product = item.get("product", "Unknown product")
             cve = item.get("cveID", "Known Exploited Vulnerability")
 
-          attacks.append({
-    "source": "CISA KEV",
-    "sourceCountry": random_source_country(),
-    "destinationCountry": random_allowed_destination(country_code),
-    "type": "Known Exploited Vulnerability",
-    "name": f"{cve} - {vendor} {product}",
-    "cve": cve,
-    "vendor": vendor,
-    "product": product,
-    "weight": "High"
-})
+            attacks.append({
+                "source": "CISA KEV",
+                "sourceCountry": random_source_country(),
+                "destinationCountry": random_allowed_destination(country_code),
+                "type": "Known Exploited Vulnerability",
+                "name": f"{cve} - {vendor} {product}",
+                "cve": cve,
+                "vendor": vendor,
+                "product": product,
+                "weight": "High"
+            })
 
         return attacks
 
