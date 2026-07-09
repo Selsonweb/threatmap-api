@@ -726,7 +726,6 @@ def top_cves():
 
 @app.route("/api/intelligence/top-cves")
 def intelligence_top_cves():
-
     country_code = request.args.get("country", "BE")
     days = request.args.get("days", "30")
 
@@ -736,76 +735,36 @@ def intelligence_top_cves():
 
         cur.execute("""
             SELECT
-                threat_name,
+                COALESCE(raw_data->>'cve', split_part(threat_name, ' - ', 1)) AS cve,
+                COALESCE(raw_data->>'vendor', '') AS vendor,
+                COALESCE(raw_data->>'product', '') AS product,
                 COUNT(*) AS total
             FROM threat_logs
             WHERE
-                destination_country=%s
-                AND threat_type='Known Exploited Vulnerability'
-                AND event_time >= NOW()-(%s || ' days')::interval
-            GROUP BY threat_name
+                destination_country = %s
+                AND threat_type = 'Known Exploited Vulnerability'
+                AND event_time >= NOW() - (%s || ' days')::interval
+            GROUP BY cve, vendor, product
             ORDER BY total DESC
             LIMIT 20
-        """,(country_code,days))
+        """, (country_code, days))
 
         rows = cur.fetchall()
-
-        result=[]
-
-        for row in rows:
-
-            text=row["threat_name"]
-
-            parts=text.split(" - ",1)
-
-            cve=parts[0]
-
-            product=parts[1] if len(parts)>1 else ""
-known_vendors = [
-    "Check Point",
-    "SolarWinds",
-    "SimpleHelp",
-    "Cisco",
-    "Ivanti",
-    "Ubiquiti",
-    "PTC",
-    "BerriAI",
-    "Mirasvit",
-    "Arista",
-    "Splunk",
-    "LiteSpeed",
-    "Lantronix",
-    "Google",
-    "Oracle"
-]
-
-vendor = ""
-clean_product = product
-
-for known_vendor in known_vendors:
-    if product.startswith(known_vendor):
-        vendor = known_vendor
-        clean_product = product.replace(known_vendor, "", 1).strip()
-        break
-
-if not vendor:
-    vendor = product.split(" ")[0] if product else ""
-    clean_product = product.replace(vendor, "", 1).strip()
-
-result.append({
-    "cve": cve,
-    "vendor": vendor,
-    "product": clean_product,
-    "count": row["total"]
-})
-
         cur.close()
         conn.close()
 
-        return jsonify(result)
+        return jsonify([
+            {
+                "cve": row["cve"],
+                "vendor": row["vendor"],
+                "product": row["product"],
+                "count": row["total"]
+            }
+            for row in rows
+        ])
 
     except Exception as e:
-        return jsonify({"error":str(e)}),500
+        return jsonify({"error": str(e)}), 500
 
 KNOWN_VENDORS = [
     "Check Point",
