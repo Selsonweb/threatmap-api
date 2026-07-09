@@ -753,15 +753,23 @@ def intelligence_top_cves():
         cur.close()
         conn.close()
 
-        return jsonify([
-            {
-                "cve": row["cve"],
-                "vendor": row["vendor"],
-                "product": row["product"],
-                "count": row["total"]
-            }
-            for row in rows
-        ])
+ cleaned = []
+
+for row in rows:
+    vendor = row["vendor"] or ""
+    product = row["product"] or ""
+
+    if vendor and product.startswith(vendor):
+        product = product.replace(vendor, "", 1).strip()
+
+    cleaned.append({
+        "cve": row["cve"],
+        "vendor": vendor,
+        "product": product,
+        "count": row["total"]
+    })
+
+return jsonify(cleaned)
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
