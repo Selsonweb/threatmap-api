@@ -1,0 +1,28 @@
+name: Collect Threats
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  collect-be:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect Belgium Threats
+        run: |
+          curl -s "${{ secrets.RENDER_API_URL }}/api/cron/collect-threats?country=BE"
+
+  collect-nl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect Netherlands Threats
+        run: |
+          curl -s "${{ secrets.RENDER_API_URL }}/api/cron/collect-threats?country=NL"
+
+  collect-de:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect Germany Threats
+        run: |
+          curl -s "${{ secrets.RENDER_API_URL }}/api/cron/collect-threats?country=DE"
